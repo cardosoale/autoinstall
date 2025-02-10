@@ -41,22 +41,122 @@ autoinstall:
         id: format-btrfs
         volume: btrfs_root
         fstype: btrfs
-        options: [compress=zstd:5, space_cache=v2]
+        options: [compress=zstd:5, space_cache=v2, ssd_spread]
 
       - type: mount
+        id: mount-efi
         device: format-efi
         path: /boot/efi
 
       - type: mount
+        id: mount-btrfs
         device: format-btrfs
         path: /
-        options: [subvol=@, compress=zstd:5, space_cache=v2, discard=async, autodefrag, ssd, noatime]
+        options: [subvol=@, compress=zstd:5, space_cache=v2, ssd_spread, discard=async, autodefrag, commit=120, clear_cache, ssd, noatime]
 
       - type: mount
         device: format-btrfs
         path: /home
-        options: [subvol=@home, compress=zstd:5, space_cache=v2, discard=async, autodefrag, ssd, noatime]
+        options: [subvol=@home, compress=zstd:5, space_cache=v2, ssd_spread, discard=async, autodefrag, commit=120, clear_cache, ssd, noatime]
 
-  package_update: false
-  package_upgrade: false
+      - type: mount
+        device: format-btrfs
+        path: /var
+        options: [subvol=@var, compress=zstd:5, space_cache=v2, ssd_spread, discard=async, autodefrag, commit=120, clear_cache, ssd, noatime]
+
+  early-commands:
+    - |
+      # Checa o espaço disponível na raiz (valor em kilobytes)
+      AVAILABLE=$(df --output=avail / | tail -1 | tr -d ' ')
+      if [ "$AVAILABLE" -lt 10485760 ]; then
+        echo "Erro: Espaço em disco insuficiente (mínimo 10GB necessário)"
+        exit 1
+      fi
+
+  late-commands:
+    - echo "zram" >> /target/etc/modules
+    - |
+      curtin in-target --target=/target -- apt-get install -y systemd-zram-generator
+    - |
+      cat << 'EOF' > /target/etc/systemd/zram-generator.conf
+      [zram0]
+      zram-size = ram * 0.5
+      compression-algorithm = zstd
+      EOF
+    - |
+      cat << 'EOF' > /target/etc/sysctl.d/99-custom.conf
+      vm.swappiness = 10
+      vm.vfs_cache_pressure = 40
+      vm.dirty_ratio = 10
+      vm.dirty_background_ratio = 5
+      vm.laptop_mode = 5
+      vm.page-cluster = 0
+      kernel.nmi_watchdog = 0
+      net.core.netdev_max_backlog = 16384
+      net.core.somaxconn = 8192
+      net.core.rmem_max = 16777216
+      net.core.wmem_max = 16777216
+      net.ipv4.tcp_rmem = 4096 87380 16777216
+      net.ipv4.tcp_wmem = 4096 87380 16777216
+      net.ipv4.tcp_congestion_control = bbr
+      fs.inotify.max_user_watches = 524288
+      fs.file-max = 2097152
+      EOF
+    - |
+      cat << 'EOF' > /target/etc/systemd/system.conf.d/custom.conf
+      [Manager]
+      DefaultTimeoutStopSec=10s
+      EOF
+    - |
+      cat << 'EOF' > /target/etc/default/grub.d/custom.cfg
+      GRUB_CMDLINE_LINUX_DEFAULT="quiet splash nowatchdog zswap.enabled=1 zswap.compressor=zstd zswap.max_pool_percent=25 zswap.zpool=z3fold intel_idle.max_cstate=1 pcie_aspm=force acpi_osi=Linux i915.enable_fbc=1 i915.enable_psr=2"
+      GRUB_TIMEOUT=3
+      EOF
+    - |
+      PACKAGES="timeshift grub-btrfs inotify-tools thermald earlyoom preload auto-cpufreq"
+      curtin in-target --target=/target -- apt-get update
+      for pkg in $PACKAGES; do
+        if ! curtin in-target --target=/target -- apt-get install -y $pkg; then
+          echo "Erro na instalação do pacote $pkg"
+          exit 1
+        fi
+      done
+    - |
+      SERVICES="thermald earlyoom preload auto-cpufreq"
+      for service in $SERVICES; do
+        if ! curtin in-target --target=/target -- systemctl enable $service; then
+          echo "Erro ao habilitar o serviço $service"
+          exit 1
+        fi
+      done
+    - |
+      if curtin in-target --target=/target -- ([ -d /sys/class/power_supply/BAT* ] || 
+      [ -d /sys/class/power_supply/battery* ] || 
+      grep -qi "laptop" /sys/class/dmi/id/chassis_type); then
+        echo "Laptop detectado - Instalando TLP..."
+        if ! curtin in-target --target=/target -- apt-get install -y tlp tlp-rdw; then
+          echo "Erro na instalação do TLP"
+          exit 1
+        fi
+        if ! curtin in-target --target=/target -- systemctl enable tlp; then
+          echo "Erro ao habilitar o TLP"
+          exit 1
+        fi
+      fi
+    - curtin in-target --target=/target -- apt-get upgrade -y
+    - curtin in-target --target=/target -- update-grub
+
+  packages:
+    - btrfs-progs
+    - linux-generic
+    - grub-efi-amd64
+    - efibootmgr
+    - htop
+    - neofetch
+    - iotop
+    - nmon
+    - powertop
+
+  package_update: true
+  package_upgrade: true
   reboot: true
