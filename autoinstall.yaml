@@ -41,7 +41,7 @@ autoinstall:
         id: format-btrfs
         volume: btrfs_root
         fstype: btrfs
-        options: [compress=zstd:5, space_cache=v2, ssd_spread]
+        options: [compress=zstd:5, space_cache=v2]
 
       - type: mount
         device: format-efi
@@ -50,66 +50,17 @@ autoinstall:
       - type: mount
         device: format-btrfs
         path: /
-        options: [subvol=@, compress=zstd:5, space_cache=v2, ssd_spread, discard=async, autodefrag, ssd, noatime]
+        options: [subvol=@, compress=zstd:5, space_cache=v2, discard=async, autodefrag, ssd, noatime]
 
       - type: mount
         device: format-btrfs
         path: /home
-        options: [subvol=@home, compress=zstd:5, space_cache=v2, ssd_spread, discard=async, autodefrag, ssd, noatime]
+        options: [subvol=@home, compress=zstd:5, space_cache=v2, discard=async, autodefrag, ssd, noatime]
 
       - type: mount
         device: format-btrfs
         path: /var
-        options: [subvol=@var, compress=zstd:5, space_cache=v2, ssd_spread, discard=async, autodefrag, ssd, noatime]
-
-  late-commands:
-    - echo "zram" >> /target/etc/modules
-    - |
-      cat << 'EOF' > /target/etc/systemd/zram-generator.conf
-      [zram0]
-      zram-size = ram * 0.5
-      compression-algorithm = zstd
-      EOF
-    - |
-      cat << 'EOF' > /target/etc/sysctl.d/99-custom.conf
-      vm.swappiness = 10
-      vm.vfs_cache_pressure = 40
-      vm.dirty_ratio = 10
-      vm.dirty_background_ratio = 5
-      vm.laptop_mode = 5
-      vm.page-cluster = 0
-      net.ipv4.tcp_congestion_control = bbr
-      fs.inotify.max_user_watches = 524288
-      EOF
-    - |
-      cat << 'EOF' > /target/etc/default/grub.d/custom.cfg
-      GRUB_CMDLINE_LINUX_DEFAULT="quiet splash nowatchdog zswap.enabled=1 zswap.compressor=zstd zswap.max_pool_percent=25 zswap.zpool=z3fold intel_idle.max_cstate=1 pcie_aspm=force acpi_osi=Linux i915.enable_fbc=1 i915.enable_psr=2"
-      GRUB_TIMEOUT=3
-      EOF
-    - |
-      PACKAGES="timeshift grub-btrfs thermald earlyoom auto-cpufreq"
-      curtin in-target --target=/target -- apt-get update
-      curtin in-target --target=/target -- apt-get install -y $PACKAGES
-    - |
-      SERVICES="thermald earlyoom auto-cpufreq"
-      for service in $SERVICES; do
-        curtin in-target --target=/target -- systemctl enable $service
-      done
-    - |
-      if curtin in-target --target=/target -- ([ -d /sys/class/power_supply/BAT* ] || 
-      [ -d /sys/class/power_supply/battery* ] || 
-      grep -qi "laptop" /sys/class/dmi/id/chassis_type); then
-        curtin in-target --target=/target -- apt-get install -y tlp tlp-rdw
-        curtin in-target --target=/target -- systemctl enable tlp
-      fi
-    - curtin in-target --target=/target -- update-grub
-
-  packages:
-    - btrfs-progs
-    - linux-generic
-    - grub-efi-amd64
-    - efibootmgr
-    - powertop
+        options: [subvol=@var, compress=zstd:5, space_cache=v2, discard=async, autodefrag, ssd, noatime]
 
   package_update: false
   package_upgrade: false
