@@ -28,7 +28,6 @@ device: disk0
 size: 512M
 flag: boot
 grub_device: true
-type: efi
 - type: partition
 id: btrfs_root
 device: disk0
