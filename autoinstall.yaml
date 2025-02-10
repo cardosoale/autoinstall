@@ -57,11 +57,6 @@ autoinstall:
         path: /home
         options: [subvol=@home, compress=zstd:5, space_cache=v2, discard=async, autodefrag, ssd, noatime]
 
-      - type: mount
-        device: format-btrfs
-        path: /var
-        options: [subvol=@var, compress=zstd:5, space_cache=v2, discard=async, autodefrag, ssd, noatime]
-
   package_update: false
   package_upgrade: false
   reboot: true
